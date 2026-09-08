@@ -1,43 +1,53 @@
+import os
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
+from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
+
+
+load_dotenv()
 
 app = FastAPI()
 
-# MongoDB connection using your new fastapi_user credentials
-MONGO_URL = "mongodb+srv://fastapi_user:python123456@cluster0.gyjrmuf.mongodb.net/?authSource=admin"
 
-client = AsyncIOMotorClient(
-    MONGO_URL, 
-    tls=True, 
-    tlsAllowInvalidCertificates=True
-)
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_CLUSTER = os.getenv("DB_CLUSTER")
 
-db = client.ai_project_db
-item_collection = db.get_collection("items")
+
+MONGO_URL = f"mongodb+srv://{DB_USER}:{DB_PASS}@{DB_CLUSTER}/?authSource=admin"
+print(f"🔌 Attempting MongoDB connection with username: '{DB_USER}'")
+
+client = AsyncIOMotorClient(MONGO_URL, tls=True, tlsAllowInvalidCertificates=True)
+items_db = client.ai_project_db.items
 
 class Item(BaseModel):
     name: str
     content: str
 
 @app.post("/items")
-async def create_item(new_item: Item):
-    try:
-        item_dict = new_item.model_dump()
-        result = await item_collection.insert_one(item_dict)
-        return {
-            "message": "Item added Successfully",
-            "id": str(result.inserted_id)
-        }
-    except Exception as e:
-        print(f"🚨 MONGODB ERROR: {e}")
-        return {"error": str(e)}
+async def create(item: Item):
+    res = await items_db.insert_one(item.model_dump())
+    return {"message": "Success", "id": str(res.inserted_id)}
 
 @app.get("/items")
-async def get_all_items():
-    items = []
-    cursor = item_collection.find({})
-    async for document in cursor:
-        document["_id"] = str(document["_id"])
-        items.append(document)
+async def get_all():
+    items = await items_db.find().to_list(100)
+    for i in items: i["_id"] = str(i["_id"])
     return {"Items": items}
+
+
+@app.put("/item/{item_id}")
+async def update_item(item_id: str, item:Item):
+    result = await items_db.update_one(
+        {"_id": ObjectId(item_id)},
+        {"$set": item.model_dump()}
+    )
+    return {"message": "Item Updated", "modified_count": result.modified_count}
+
+
+@app.delete("/item/{item_id}")
+async def delete_item(item_id: str):
+    result = await items_db.delete_one({"_id": ObjectId(item_id)})
+    return {"message": "Item Deleted", "deleted_count": result.deleted_count}
