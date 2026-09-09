@@ -17,7 +17,7 @@ DB_CLUSTER = os.getenv("DB_CLUSTER")
 
 
 MONGO_URL = f"mongodb+srv://{DB_USER}:{DB_PASS}@{DB_CLUSTER}/?authSource=admin"
-print(f"🔌 Attempting MongoDB connection with username: '{DB_USER}'")
+print(f" Attempting MongoDB connection with username: '{DB_USER}'")
 
 client = AsyncIOMotorClient(MONGO_URL, tls=True, tlsAllowInvalidCertificates=True)
 items_db = client.ai_project_db.items
@@ -31,11 +31,32 @@ async def create(item: Item):
     res = await items_db.insert_one(item.model_dump())
     return {"message": "Success", "id": str(res.inserted_id)}
 
+# @app.get("/items")
+# async def get_all():
+#     items = await items_db.find().to_list(100)
+#     for i in items: i["_id"] = str(i["_id"])
+#     return {"Items": items}
+
+
 @app.get("/items")
-async def get_all():
-    items = await items_db.find().to_list(100)
+async def get_all(limit: int = 100):
+    items =await items_db.find().to_list(limit)
     for i in items: i["_id"] = str(i["_id"])
-    return {"Items": items}
+    return {"items": items}
+
+
+
+
+
+@app.get("/items/{item_id}")
+async def get_single_item(item_id: str):
+    item = await items_db.find_one({"_id": ObjectId(item_id)})
+
+    if item:
+        item["_id"] = str(item["_id"])
+        return item
+
+    return {"error": "Item not found"}
 
 
 @app.put("/item/{item_id}")
