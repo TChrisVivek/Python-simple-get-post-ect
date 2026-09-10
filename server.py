@@ -1,10 +1,12 @@
 import os
 from dotenv import load_dotenv
 from fastapi import FastAPI,Query, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from bson import ObjectId
 from bson.errors import InvalidId
 from motor.motor_asyncio import AsyncIOMotorClient
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 
 
@@ -24,9 +26,31 @@ print(f" Attempting MongoDB connection with username: '{DB_USER}'")
 client = AsyncIOMotorClient(MONGO_URL, tls=True, tlsAllowInvalidCertificates=True)
 items_db = client.ai_project_db.items
 
+@app.exception_handler(RequestValidationError)
+async def custom_validation_error(request, exc):
+    # exc.errors() contains the original bulky list of errors
+    error = exc.errors()[0]
+    
+    # Extract the name of the field that failed (e.g., 'content', 'name', 'password')
+    field_name = error["loc"][-1]
+    
+    # Check if the error is specifically because the string is too short
+    if error["type"] == "string_too_short":
+        min_len = error["ctx"]["min_length"]
+        custom_message = f"{field_name.capitalize()} should have at least {min_len} character(s)"
+    else:
+        # A fallback message for other rules (like invalid data types)
+        custom_message = f"Invalid input for {field_name}"
+
+    # Return the ultra-clean JSON format
+    return JSONResponse(
+        status_code=422,
+        content={"error": custom_message}
+    )
+
 class Item(BaseModel):
-    name: str
-    content: str
+    name: str = Field(min_length=1, max_length=40)
+    content: str = Field(min_length=1)
 
 @app.post("/items")
 async def create(item: Item):
